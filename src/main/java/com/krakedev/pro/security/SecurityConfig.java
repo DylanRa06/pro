@@ -28,8 +28,9 @@ public class SecurityConfig {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/auth/registrar", "/api/auth/login").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/mascotas", "/api/auth/perfil").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/mascotas", "/api/mascotas/disponibles", "/api/auth/perfil").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/mascotas", "/api/auth/logout").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/mascotas/*/adoptar").authenticated()
                         .requestMatchers("/error").permitAll()
                         .anyRequest().denyAll())
                 .exceptionHandling(errors -> errors

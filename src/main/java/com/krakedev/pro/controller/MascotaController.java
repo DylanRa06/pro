@@ -20,6 +20,14 @@ public class MascotaController {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.registrar(mascota));
     }
 
+    @GetMapping("/disponibles")
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    public List<Mascota> disponibles() { return service.listarDisponibles(); }
+
+    @PutMapping("/{id}/adoptar")
+    @PreAuthorize("hasRole('ADMIN')")
+    public Mascota adoptar(@PathVariable Long id) { return service.adoptar(id); }
+
     @GetMapping
     @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public List<Mascota> listar() { return service.listar(); }

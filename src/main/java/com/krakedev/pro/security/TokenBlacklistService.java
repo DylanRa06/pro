@@ -1,16 +1,29 @@
 package com.krakedev.pro.security;
 
+import java.time.Instant;
+import java.util.concurrent.ConcurrentHashMap;
 import com.auth0.jwt.interfaces.DecodedJWT;
-import com.krakedev.pro.model.TokenRevocado;
-import com.krakedev.pro.repository.TokenRevocadoRepository;
 import org.springframework.stereotype.Service;
 
 @Service
 public class TokenBlacklistService {
-    private final TokenRevocadoRepository repository;
-    public TokenBlacklistService(TokenRevocadoRepository repository) { this.repository = repository; }
-    public boolean estaRevocado(String jti) { return repository.existsById(jti); }
+    private final ConcurrentHashMap<String, Instant> tokens = new ConcurrentHashMap<>();
+
+    public boolean estaRevocado(String token) {
+        Instant expiracion = tokens.get(token);
+        if (expiracion == null) return false;
+        if (!expiracion.isAfter(Instant.now())) {
+            tokens.remove(token, expiracion);
+            return false;
+        }
+        return true;
+    }
+
     public void revocar(DecodedJWT token) {
-        repository.saveAndFlush(new TokenRevocado(token.getId(), token.getExpiresAtAsInstant()));
+        Instant ahora = Instant.now();
+        tokens.entrySet().removeIf(entrada -> !entrada.getValue().isAfter(ahora));
+        if (token.getExpiresAtAsInstant().isAfter(ahora)) {
+            tokens.put(token.getToken(), token.getExpiresAtAsInstant());
+        }
     }
 }

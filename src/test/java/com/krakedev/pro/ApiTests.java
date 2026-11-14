@@ -26,11 +26,11 @@ class ApiTests {
     @Autowired UsuarioRepository usuarios;
     @Autowired PasswordEncoder encoder;
     @Autowired com.krakedev.pro.security.JwtUtil jwt;
-    @Autowired com.krakedev.pro.repository.TokenRevocadoRepository revocados;
+    @Autowired com.krakedev.pro.security.TokenBlacklistService blacklist;
     private String adminToken;
 
     @BeforeEach void limpiar() {
-        revocados.deleteAll(); mascotas.deleteAll(); usuarios.deleteAll();
+        mascotas.deleteAll(); usuarios.deleteAll();
         var admin = new com.krakedev.pro.model.Usuario();
         admin.setUsername("voluntario_test"); admin.setRol("ADMIN");
         adminToken = jwt.generarToken(admin);
@@ -141,7 +141,7 @@ class ApiTests {
         String otro = jwt.generarToken(u);
         mvc.perform(post("/api/auth/logout").header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk());
-        assertEquals(1, revocados.count());
+        assertTrue(blacklist.estaRevocado(token));
         for (String ruta : new String[]{"/api/auth/perfil", "/api/mascotas"}) {
             mvc.perform(get(ruta).header("Authorization", "Bearer " + token))
                     .andExpect(status().isUnauthorized());
@@ -182,6 +182,85 @@ class ApiTests {
             mvc.perform(get("/api/auth/perfil").header("Authorization", header))
                     .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.mensaje").exists());
         }
+    }
+
+
+    private long crearMascota(String nombre) throws Exception {
+        String respuesta = mvc.perform(post("/api/mascotas")
+                .header("Authorization", "Bearer " + adminToken).contentType("application/json")
+                .content("{\"nombre\":\"" + nombre + "\",\"especie\":\"Perro\",\"edad\":2}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        return json.readTree(respuesta).get("id").asLong();
+    }
+
+    @Test void adopcionActualizaSoloUnaMascotaYLaExcluyeDeDisponibles() throws Exception {
+        long luna = crearMascota("Luna");
+        long milo = crearMascota("Milo");
+        String user = loginUsuario();
+        mvc.perform(get("/api/mascotas/disponibles").header("Authorization", "Bearer " + user))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2));
+        mvc.perform(put("/api/mascotas/" + luna + "/adoptar").header("Authorization", "Bearer " + user))
+                .andExpect(status().isForbidden());
+        assertEquals("DISPONIBLE", mascotas.findById(luna).orElseThrow().getEstado());
+        mvc.perform(put("/api/mascotas/" + luna + "/adoptar").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.estado").value("ADOPTADA"));
+        mvc.perform(put("/api/mascotas/" + luna + "/adoptar").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isConflict());
+        mvc.perform(put("/api/mascotas/999999/adoptar").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/mascotas/disponibles").header("Authorization", "Bearer " + user))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(milo));
+        mvc.perform(get("/api/mascotas").header("Authorization", "Bearer " + user))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2));
+        assertEquals("ADOPTADA", mascotas.findById(luna).orElseThrow().getEstado());
+        assertEquals("DISPONIBLE", mascotas.findById(milo).orElseThrow().getEstado());
+    }
+
+    @Test void adopcionesConcurrentesNoPuedenConfirmarDosVeces() throws Exception {
+        long id = crearMascota("Luna");
+        var inicio = new java.util.concurrent.CountDownLatch(1);
+        try (var ejecutor = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            java.util.concurrent.Callable<Integer> adoptar = () -> {
+                inicio.await();
+                return mvc.perform(put("/api/mascotas/" + id + "/adoptar")
+                        .header("Authorization", "Bearer " + adminToken)).andReturn().getResponse().getStatus();
+            };
+            var primera = ejecutor.submit(adoptar);
+            var segunda = ejecutor.submit(adoptar);
+            inicio.countDown();
+            var resultados = new java.util.ArrayList<>(java.util.List.of(
+                    primera.get(15, java.util.concurrent.TimeUnit.SECONDS),
+                    segunda.get(15, java.util.concurrent.TimeUnit.SECONDS)));
+            java.util.Collections.sort(resultados);
+            assertEquals(java.util.List.of(200, 409), resultados);
+        }
+        assertEquals("ADOPTADA", mascotas.findById(id).orElseThrow().getEstado());
+    }
+
+    @Test void disponiblesYAdopcionExigenTokenYRechazanTokenRevocado() throws Exception {
+        long id = crearMascota("Luna");
+        mvc.perform(get("/api/mascotas/disponibles")).andExpect(status().isUnauthorized());
+        mvc.perform(put("/api/mascotas/" + id + "/adoptar")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/auth/logout").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/mascotas/disponibles").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(put("/api/mascotas/" + id + "/adoptar").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isUnauthorized());
+        assertEquals("DISPONIBLE", mascotas.findById(id).orElseThrow().getEstado());
+    }
+
+    @Test void blacklistEnMemoriaNoSeComparteConUnaNuevaInstancia() {
+        String token = adminToken;
+        var primera = new com.krakedev.pro.security.TokenBlacklistService();
+        primera.revocar(JWT.decode(token));
+        assertTrue(primera.estaRevocado(token));
+        assertFalse(new com.krakedev.pro.security.TokenBlacklistService().estaRevocado(token));
+        String vencido = JWT.create().withExpiresAt(Instant.now().minusSeconds(60))
+                .sign(Algorithm.HMAC256("clave-prueba"));
+        primera.revocar(JWT.decode(vencido));
+        assertFalse(primera.estaRevocado(vencido));
     }
 
     private void registrar() throws Exception {

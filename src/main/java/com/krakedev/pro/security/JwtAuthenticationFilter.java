@@ -39,7 +39,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
             try {
                 var token = jwt.validarToken(header.substring(7));
-                if (blacklist.estaRevocado(token.getId())) {
+                if (blacklist.estaRevocado(token.getToken())) {
                     rechazar(response);
                     return;
                 }

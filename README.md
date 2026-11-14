@@ -1,92 +1,155 @@
 # Patitas al Rescate
 
-API de Patitas al Rescate: base individual E1-E4 y ampliación de seguridad grupal.
-La ampliación implementa los temas anunciados en el PDF individual; no se recibió un enunciado grupal detallado.
-Java 21, Spring Boot 3.5.7, Maven y PostgreSQL. Paquete base: com.krakedev.pro.
-Se conserva el nombre del proyecto pro del repositorio; el paquete sugerido del PDF es opcional.
+Continuación de la entrega individual E1-E4 conforme a Patitas_Grupal_Continuacion.pdf,
+requisitos G1-G4. Se conserva el mismo repositorio y su historial.
+Java 21, Spring Boot 3.5.7, Maven y PostgreSQL; paquete com.krakedev.pro.
 
 ## Ejecutar en Windows y Eclipse
 
-1. Crear patitas_db en pgAdmin: clic derecho en Databases > Create > Database.
-2. En la raíz del proyecto, copiar application-local.properties.example como
-   application-local.properties y escribir allí las credenciales locales de PostgreSQL.
-   Ese archivo está excluido de Git. No cambiar el archivo de ejemplo para poner claves reales.
-3. También se pueden definir DB_URL, DB_USERNAME y DB_PASSWORD como variables de entorno.
+1. Iniciar PostgreSQL y crear patitas_db si todavía no existe.
+2. Copiar application-local.properties.example como application-local.properties
+   en la raíz y completar allí usuario y contraseña local de PostgreSQL.
+   Ese archivo está excluido de Git; no subir credenciales reales.
+3. También se admiten DB_URL, DB_USERNAME y DB_PASSWORD por entorno.
    La URL predeterminada es jdbc:postgresql://localhost:5432/patitas_db.
-4. Importar con File > Import > Maven > Existing Maven Projects.
-   Si ya está importado, F5 y Maven > Update Project.
-5. Ejecutar com.krakedev.pro.ProApplication como Java Application.
-   Esperar Started ProApplication y Tomcat en el puerto 8080.
-6. Como alternativa: mvnw.cmd spring-boot:run desde CMD en la raíz.
-   En Git Bash: ./mvnw spring-boot:run.
+4. Importar como Maven > Existing Maven Projects. Si ya existe en Eclipse,
+   pulsar F5 y Maven > Update Project. Seleccionar JDK 21.
+5. Ejecutar com.krakedev.pro.ProApplication. Esperar Started ProApplication
+   y el servidor en el puerto 8080.
+6. Alternativa desde CMD: mvnw.cmd spring-boot:run.
+   En Git Bash: bash mvnw spring-boot:run.
 
-## Pruebas
+## Arquitectura
 
-Importar postman/Patitas_Grupal.postman_collection.json. La variable baseUrl vale
-http://localhost:8080. Las carpetas 1, 2 y 3 contienen las pruebas en ese orden.
-La colección Individual se conserva como referencia histórica: sus llamadas públicas a
-mascotas corresponden a la entrega anterior y ahora necesitan token y permisos.
+Controller recibe HTTP, Service valida y aplica reglas del negocio y Repository
+consulta/persiste las entidades Mascota y Usuario en PostgreSQL. JwtAuthenticationFilter
+valida el Bearer antes del Controller y establece la autenticación; SecurityConfig
+protege las rutas y @PreAuthorize verifica roles. UsuarioService emplea
+PasswordEncoder.encode al registrar y matches al hacer login.
+TokenBlacklistService conserva revocaciones exclusivamente en memoria.
 
-| Ruta | Acceso | Resultado correcto |
+## Contrato y pruebas
+
+Importar postman/Patitas_Grupal.postman_collection.json. Ejecutar sus carpetas en orden.
+Después de la carpeta 1, detenerse para que el tutor habilite ADMIN antes de la carpeta 2.
+La colección tiene 28 peticiones y guarda automáticamente tokens e id de las mascotas.
+La colección Individual se conserva como referencia: sus llamadas públicas a mascotas
+corresponden a la versión anterior y ahora necesitan token y permisos.
+
+| Ruta | Acceso | Resultado |
 | --- | --- | --- |
-| POST /api/auth/registrar | Público | 201, siempre rol USER |
-| POST /api/auth/login | Público | 200 con JWT o 401 |
-| GET /api/auth/perfil | USER o ADMIN con JWT válido | 200 |
-| GET /api/mascotas | USER o ADMIN con JWT válido | 200 |
-| POST /api/mascotas | Solo ADMIN con JWT válido | 201 |
-| POST /api/auth/logout | USER o ADMIN con JWT válido | 200 y revoca ese token |
+| POST /api/auth/registrar | Público | 201, siempre USER |
+| POST /api/auth/login | Público | 200 con JWT; credenciales erróneas 401 |
+| GET /api/mascotas | USER y ADMIN | 200 |
+| POST /api/mascotas | ADMIN | 201 |
+| GET /api/mascotas/disponibles | USER y ADMIN | 200, solo DISPONIBLE |
+| PUT /api/mascotas/{id}/adoptar | ADMIN | 200; inexistente 404; ya adoptada 409 |
+| POST /api/auth/logout | Autenticado | 200; revoca el JWT presentado |
+| GET /api/auth/perfil | Autenticado | 200; apoyo para verificar la identidad |
 
-Sin credencial válida: 401. Con credencial válida sin permiso: 403.
-La asignación de permisos anterior es una decisión de implementación basada en los roles
-del refugio; el PDF individual no contiene una matriz de permisos grupal detallada.
+Sin un token válido: 401. Con token válido y rol insuficiente: 403.
+El registro de mascotas recorta nombre/especie, valida edad y fija DISPONIBLE.
 
-## Preparar ADMIN local
+## Habilitar ADMIN con supervisión del tutor
 
-1. Registrar admin_grupal desde Postman; el registro público lo guardará como USER.
-2. En pgAdmin, conectado a patitas_db, ejecutar como administrador de la base:
+1. Registrar admin_grupal desde Postman; el backend asigna USER.
+2. El tutor o administrador autorizado, en Query Tool de patitas_db, ejecuta:
 
     UPDATE public.usuarios SET rol = 'ADMIN' WHERE username = 'admin_grupal';
     SELECT id, username, rol FROM public.usuarios WHERE username = 'admin_grupal';
 
-3. Hacer login de nuevo como admin_grupal para emitir su JWT con rol ADMIN.
-   Un token anterior mantiene el rol con el que fue emitido hasta vencer o cerrarse.
-   No se permite elegir ADMIN en el JSON del registro público.
+3. Hacer login nuevamente para recibir un token con rol ADMIN.
+   Un JWT ya emitido conserva el rol anterior hasta vencer o ser revocado.
+   No se admite elegir ADMIN desde el registro público.
 
-## JWT y logout
+Si los usernames ya existen, usar otros en las variables de Postman y en el SQL.
+Las claves de la colección son ejemplos de práctica, no credenciales personales.
 
-JwtAuthenticationFilter valida firma HS256, emisor patitas-rescate, expiración,
-subject, rol y jti. También consulta tokens_revocados antes de crear la autenticación
-en SecurityContextHolder. @PreAuthorize restringe las acciones de mascotas.
-SecurityConfig configura rutas públicas, respuestas 401/403 y sesiones STATELESS.
-No se usan sesiones de navegador ni cookies para autenticar estas peticiones.
+## Disponibles y adopción
 
-POST /api/auth/logout guarda el jti y vencimiento en tokens_revocados y rechaza
-las siguientes peticiones con ese token, incluso si no ha expirado. El logout solo
-revoca el token presentado; otros tokens del mismo usuario siguen siendo válidos.
-Las filas de revocación se conservan en PostgreSQL; esta versión no elimina las vencidas.
+MascotaRepository.findByEstado consulta PostgreSQL para devolver solo DISPONIBLE.
+MascotaService.adoptar ejecuta una transacción: busca por id, devuelve 404 si no existe,
+409 si no está DISPONIBLE y, en caso válido, guarda ADOPTADA.
+La búsqueda usa un bloqueo de escritura sobre esa fila para que dos solicitudes
+concurrentes no puedan confirmar dos adopciones de la misma mascota.
+No se crea una entidad ni tabla de adopciones y no se modifican otras mascotas.
+En Postman se guarda el id real devuelto al crear Luna; no se supone que sea 1.
 
-JWT firmado no significa cifrado: no se colocan contraseñas en el payload.
-Sin JWT_SECRET se genera una clave aleatoria por arranque; todos los tokens anteriores
-dejarán de ser válidos al reiniciar. Para conservarlos entre arranques, definir
-JWT_SECRET por entorno con al menos 32 bytes y mantener la misma clave local.
-La blacklist persiste en PostgreSQL aunque se reinicie el servidor.
+Verificar en pgAdmin:
 
-En pgAdmin pueden revisarse los datos:
-
-    SELECT * FROM public.mascotas ORDER BY id;
+    SELECT id, nombre, especie, edad, estado FROM public.mascotas ORDER BY id;
+    SELECT id, nombre, estado FROM public.mascotas WHERE estado = 'DISPONIBLE';
     SELECT id, username, rol FROM public.usuarios ORDER BY id;
-    SELECT jti, expiracion FROM public.tokens_revocados;
 
-El cliente no puede modificar mascotas existentes enviando un id al crear.
+## JWT, blacklist en memoria y reinicios
 
-## Comprobación automática
+JwtUtil genera JWT HS256 con emisor patitas-rescate, subject, rol, jti y expiración.
+El filtro verifica firma, emisor, expiración y claims antes de confiar en ellos;
+comprueba también que el token no esté revocado. Sesiones STATELESS.
+La firma no cifra el payload: nunca contiene contraseñas.
 
-    mvnw.cmd clean verify
+TokenBlacklistService usa ConcurrentHashMap<String, Instant>. Al hacer logout guarda
+el token y su vencimiento; el filtro rechaza su reutilización. Se eliminan revocaciones
+vencidas al consultarlas o registrar otro logout. El logout afecta solo al token presentado.
+La blacklist no usa PostgreSQL, no crea tablas y se pierde al reiniciar la aplicación.
+Con una clave JWT fija, un token cerrado pero aún vigente podría volver a aceptarse
+tras reiniciar: es la limitación en memoria aceptada por el documento para esta prueba local.
 
-En Git Bash: bash mvnw clean verify. GitHub Actions también ejecuta la verificación.
+Sin JWT_SECRET se genera una clave aleatoria por arranque; en ese caso todos los tokens
+anteriores serán inválidos tras reiniciar, independientemente de la blacklist.
+Para demostrar exclusivamente la pérdida de la blacklist, mantener JWT_SECRET local
+constante (al menos 32 bytes), reiniciar y probar el mismo JWT antes de que expire.
+No subir ese secreto a GitHub.
 
-Los tests usan H2 en memoria (modo PostgreSQL) sin tocar patitas_db.
-Las capturas de Postman, consola y PostgreSQL se toman en el equipo donde se ejecuta la práctica.
+Si se ejecutó la ampliación preliminar que creaba tokens_revocados, esa tabla ya no se
+utiliza. Esta versión no la borra automáticamente ni necesita consultar su contenido.
+
+## Verificación y evidencias G4
+
+CMD: mvnw.cmd clean verify. Git Bash: bash mvnw clean verify.
+GitHub Actions también ejecuta verify con Java 21.
+Las pruebas usan H2 en modo PostgreSQL y no modifican patitas_db.
+La conexión y persistencia en PostgreSQL deben comprobarse en el equipo de la defensa.
+
+Tomar evidencias reales, organizadas por G1-G4:
+
+- G1: SecurityConfig, filtro y permisos; ausencia de token 401, USER consultando 200,
+  USER registrando 403 y ADMIN registrando 201.
+- G2: disponibles antes/después, USER adoptando 403, ADMIN adoptando 200,
+  repetición 409, inexistente 404; SELECT con ADOPTADA y otra mascota DISPONIBLE.
+- G3: acceso exitoso, logout 200 y mismo token rechazado con 401; código de la colección concurrente.
+- G4: inicio de consola y flujo completo con persistencia real. Cada integrante explica
+  un componente que comprenda; no se inventan participantes ni capturas.
+
+## Respuestas técnicas grupales
+
+### G1
+1. El filtro JWT lee Authorization, extrae el Bearer, comprueba firma, expiración y
+   revocación y establece el usuario y sus autoridades antes de llegar al Controller.
+2. Autenticación verifica quién hace la petición. Autorización decide si ese usuario
+   tiene permiso para la operación: un USER autenticado recibe 403 al crear o adoptar.
+
+### G2
+1. Repository aporta una consulta real a la base mediante findByEstado; devuelve solo
+   registros DISPONIBLE y evita mantener un listado ficticio o filtrar datos quemados.
+2. Una mascota ADOPTADA ya no cumple la condición del negocio. La segunda adopción
+   devuelve 409 para informar el conflicto y conserva el estado, sin repetir la operación.
+
+### G3
+1. La firma válida no informa que el usuario cerró sesión. La blacklist agrega esa
+   revocación al control de firma y expiración e impide reutilizar el JWT cerrado.
+2. La blacklist en memoria se pierde al reiniciar y no se comparte entre instancias.
+   Con la misma clave, un JWT revocado todavía vigente puede volver a ser aceptado.
+
+### G4: defensa
+- La contraseña se valida en UsuarioService.autenticar con PasswordEncoder.matches.
+- La petición llega al Controller, que llama al Service; este valida y usa el Repository,
+  que opera sobre PostgreSQL mediante JPA. El resultado regresa como respuesta JSON.
+- El filtro valida firma, emisor, expiración, claims y revocación antes de autenticar.
+- @EnableMethodSecurity activa @PreAuthorize; hasRole('ADMIN') requiere ROLE_ADMIN
+  en las autoridades que el filtro creó desde un JWT verificado.
+- La adopción duplicada se evita verificando DISPONIBLE dentro de una transacción
+  con bloqueo de fila; la segunda solicitud ve ADOPTADA y devuelve 409.
 
 ## Preguntas técnicas
 
