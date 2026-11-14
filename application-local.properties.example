@@ -1,0 +1,2 @@
+spring.datasource.username=postgres
+spring.datasource.password=REEMPLAZAR_SOLO_EN_LA_COPIA_LOCAL
