@@ -1,6 +1,7 @@
 package com.krakedev.pro.controller;
 
 import java.util.List;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,10 +15,12 @@ public class MascotaController {
     public MascotaController(MascotaService service) { this.service = service; }
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Mascota> registrar(@RequestBody Mascota mascota) {
         return ResponseEntity.status(HttpStatus.CREATED).body(service.registrar(mascota));
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public List<Mascota> listar() { return service.listar(); }
 }

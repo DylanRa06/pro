@@ -1,6 +1,7 @@
 # Patitas al Rescate
 
-API individual E1-E4: mascotas, registro con BCrypt y emisión de JWT.
+API de Patitas al Rescate: base individual E1-E4 y ampliación de seguridad grupal.
+La ampliación implementa los temas anunciados en el PDF individual; no se recibió un enunciado grupal detallado.
 Java 21, Spring Boot 3.5.7, Maven y PostgreSQL. Paquete base: com.krakedev.pro.
 Se conserva el nombre del proyecto pro del repositorio; el paquete sugerido del PDF es opcional.
 
@@ -21,34 +22,68 @@ Se conserva el nombre del proyecto pro del repositorio; el paquete sugerido del 
 
 ## Pruebas
 
-Importar postman/Patitas_Individual.postman_collection.json y ejecutar en orden.
-La variable baseUrl vale http://localhost:8080. No se requiere Bearer Token en esta fase.
-Repetir el registro con el mismo username devuelve 409; para otra cuenta cambiar username
-tanto en el registro como en el login.
+Importar postman/Patitas_Grupal.postman_collection.json. La variable baseUrl vale
+http://localhost:8080. Las carpetas 1, 2 y 3 contienen las pruebas en ese orden.
+La colección Individual se conserva como referencia histórica: sus llamadas públicas a
+mascotas corresponden a la entrega anterior y ahora necesitan token y permisos.
 
-- POST /api/mascotas: nombre, especie y edad. Responde 201. Estado siempre DISPONIBLE.
-- GET /api/mascotas: responde 200 con los datos guardados.
-- POST /api/auth/registrar: username y password. Responde 201 sin password, rol USER.
-- POST /api/auth/login: username y password. Responde 200 con token o 401 genérico.
+| Ruta | Acceso | Resultado correcto |
+| --- | --- | --- |
+| POST /api/auth/registrar | Público | 201, siempre rol USER |
+| POST /api/auth/login | Público | 200 con JWT o 401 |
+| GET /api/auth/perfil | USER o ADMIN con JWT válido | 200 |
+| GET /api/mascotas | USER o ADMIN con JWT válido | 200 |
+| POST /api/mascotas | Solo ADMIN con JWT válido | 201 |
+| POST /api/auth/logout | USER o ADMIN con JWT válido | 200 y revoca ese token |
 
-En pgAdmin, seleccionar patitas_db y ejecutar:
+Sin credencial válida: 401. Con credencial válida sin permiso: 403.
+La asignación de permisos anterior es una decisión de implementación basada en los roles
+del refugio; el PDF individual no contiene una matriz de permisos grupal detallada.
+
+## Preparar ADMIN local
+
+1. Registrar admin_grupal desde Postman; el registro público lo guardará como USER.
+2. En pgAdmin, conectado a patitas_db, ejecutar como administrador de la base:
+
+    UPDATE public.usuarios SET rol = 'ADMIN' WHERE username = 'admin_grupal';
+    SELECT id, username, rol FROM public.usuarios WHERE username = 'admin_grupal';
+
+3. Hacer login de nuevo como admin_grupal para emitir su JWT con rol ADMIN.
+   Un token anterior mantiene el rol con el que fue emitido hasta vencer o cerrarse.
+   No se permite elegir ADMIN en el JSON del registro público.
+
+## JWT y logout
+
+JwtAuthenticationFilter valida firma HS256, emisor patitas-rescate, expiración,
+subject, rol y jti. También consulta tokens_revocados antes de crear la autenticación
+en SecurityContextHolder. @PreAuthorize restringe las acciones de mascotas.
+SecurityConfig configura rutas públicas, respuestas 401/403 y sesiones STATELESS.
+No se usan sesiones de navegador ni cookies para autenticar estas peticiones.
+
+POST /api/auth/logout guarda el jti y vencimiento en tokens_revocados y rechaza
+las siguientes peticiones con ese token, incluso si no ha expirado. El logout solo
+revoca el token presentado; otros tokens del mismo usuario siguen siendo válidos.
+Las filas de revocación se conservan en PostgreSQL; esta versión no elimina las vencidas.
+
+JWT firmado no significa cifrado: no se colocan contraseñas en el payload.
+Sin JWT_SECRET se genera una clave aleatoria por arranque; todos los tokens anteriores
+dejarán de ser válidos al reiniciar. Para conservarlos entre arranques, definir
+JWT_SECRET por entorno con al menos 32 bytes y mantener la misma clave local.
+La blacklist persiste en PostgreSQL aunque se reinicie el servidor.
+
+En pgAdmin pueden revisarse los datos:
 
     SELECT * FROM public.mascotas ORDER BY id;
-    SELECT id, username, password, rol FROM public.usuarios ORDER BY id;
+    SELECT id, username, rol FROM public.usuarios ORDER BY id;
+    SELECT jti, expiracion FROM public.tokens_revocados;
 
-El cliente no puede asignar rol ADMIN ni modificar mascotas existentes enviando un id al crear.
-
-## JWT y alcance
-
-JWT firmado con HS256, sujeto username, claim rol y expiración de 30 minutos.
-Sin JWT_SECRET se genera una clave aleatoria en cada arranque, no publicada ni persistida.
-Opcionalmente definir JWT_SECRET mediante entorno (al menos 32 bytes).
-En esta entrega no hay filtro JWT, restricciones por rol, perfil ni logout/blacklist.
-Los endpoints solicitados son públicos expresamente para el alcance individual.
+El cliente no puede modificar mascotas existentes enviando un id al crear.
 
 ## Comprobación automática
 
     mvnw.cmd clean verify
+
+En Git Bash: bash mvnw clean verify. GitHub Actions también ejecuta la verificación.
 
 Los tests usan H2 en memoria (modo PostgreSQL) sin tocar patitas_db.
 Las capturas de Postman, consola y PostgreSQL se toman en el equipo donde se ejecuta la práctica.

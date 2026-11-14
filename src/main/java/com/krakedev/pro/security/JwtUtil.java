@@ -30,6 +30,18 @@ public class JwtUtil {
         this.minutos = minutos;
     }
 
+    public com.auth0.jwt.interfaces.DecodedJWT validarToken(String token) {
+        var datos = JWT.require(algoritmo).withIssuer("patitas-rescate").build().verify(token);
+        String rol = datos.getClaim("rol").asString();
+        if (datos.getSubject() == null || datos.getSubject().isBlank()
+                || datos.getId() == null || datos.getId().isBlank()
+                || datos.getExpiresAtAsInstant() == null
+                || !("USER".equals(rol) || "ADMIN".equals(rol))) {
+            throw new com.auth0.jwt.exceptions.JWTVerificationException("Token inválido");
+        }
+        return datos;
+    }
+
     public String generarToken(Usuario usuario) {
         Instant ahora = Instant.now();
         return JWT.create().withIssuer("patitas-rescate")
