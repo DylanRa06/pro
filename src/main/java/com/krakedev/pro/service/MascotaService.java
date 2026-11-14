@@ -1,5 +1,6 @@
 package com.krakedev.pro.service;
 import java.util.List;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.stereotype.Service;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -23,6 +24,21 @@ public class MascotaService {
         mascota.setEspecie(datos.getEspecie().trim());
         mascota.setEdad(datos.getEdad());
         mascota.setEstado("DISPONIBLE");
+        return repository.save(mascota);
+    }
+
+    public List<Mascota> listarDisponibles() {
+        return repository.findByEstado("DISPONIBLE");
+    }
+
+    @Transactional
+    public Mascota adoptar(Long id) {
+        Mascota mascota = repository.buscarParaAdoptar(id).orElseThrow(() ->
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "La mascota no existe"));
+        if (!"DISPONIBLE".equals(mascota.getEstado())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "La mascota ya fue adoptada o no está disponible");
+        }
+        mascota.setEstado("ADOPTADA");
         return repository.save(mascota);
     }
 
